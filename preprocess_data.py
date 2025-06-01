@@ -141,6 +141,11 @@ def preprocess_data(df, data_source, split, augtime):
                     # print(n_reactant)
                     pass
             except:
+                # Modified code partialy solved the get_e_smiles_with_check problem, but
+                # merge_smiles_only is still not working if get_e_smiles_with_check fails 
+                # and returns " >>> ", so we use try-except to the whole code to avoid. 
+                # In this way, buggy SMILES won't be appended to e_smiles_list or rxn_class_list.
+                # Albeit, the central cause is still the kekulizing problem
                 pass
 
     elif split == "test":

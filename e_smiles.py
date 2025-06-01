@@ -1147,6 +1147,16 @@ def get_chair_dict_without_atom_map(temp_p):
 
 
 def run_get_p_b_l_forward(rxn_smi):
+    """
+    Returns
+    -------
+    list
+        - [p, core_edits, chai_edits, stereo_edits, charge_edits, core_edits_add, lg_map_lis] :
+          A list of expected properties if the function runs successfully.
+        - [] :
+          An empty list if an rdkit.Chem.rdchem.KekulizeException is encountered.
+    """
+    
     r, p = rxn_smi.split(">>")
 
     if Chem.MolFromSmiles(p).GetNumAtoms() >= 150 or Chem.MolFromSmiles(r).GetNumAtoms() >= 150:
@@ -1480,8 +1490,8 @@ def run_get_p_b_l_backward(p, core_edits, chai_edits, stereo_edits, charge_edits
 def run_get_p_b_l_check(rxn):
     try:
         p, core_edits, chai_edits, stereo_edits, charge_edits, core_edits_add, lg_map_lis = run_get_p_b_l_forward(rxn)
-    except:
-        return "error type 3"
+    except ValueError:
+        return []
 
     try:
         pre_smiles = run_get_p_b_l_backward(
@@ -2246,8 +2256,11 @@ def get_e_smiles(rxn):
         txt = a + ">>>" + b + str_
 
         return iso_to_symbo(txt, dic_num_to_str)
-    
+
     except:
+        # When it fails, it is usually caused by kekulizing issues in
+        # run_get_p_b_l_forward, which will return an empty list,
+        # causing unpacking problems of get_b_smiles_check.
         return " >>> "
 
 
@@ -2259,27 +2272,34 @@ def get_e_smiles_with_check(rxn):
     rxn (str): Input reaction string in RXN format.
 
     Returns:
-    str: ReactSeq string.
+    str: ReactSeq string. When fails, string " >>> " indicating failure.
     """
-    p_b = run_get_p_b_l_check(rxn)
-    b_smiles = get_b_smiles_check(p_b)
-    lg_lis = get_lg_forward(p_b[1], p_b[6])
+    try:
+        p_b = run_get_p_b_l_check(rxn)  # * Different from get_e_smiles
+        b_smiles = get_b_smiles_check(p_b)
+        lg_lis = get_lg_forward(p_b[1], p_b[6])
 
-    k = p_b
-    b = b_smiles
-    c = lg_lis
-    a = Chem.MolFromSmiles(k[0], sanitize=False)
+        k = p_b
+        b = b_smiles
+        c = lg_lis
+        a = Chem.MolFromSmiles(k[0], sanitize=False)
 
-    for atom in a.GetAtoms():
-        atom.SetAtomMapNum(0)
-    a = Chem.MolToSmiles(a, canonical=False)
+        for atom in a.GetAtoms():
+            atom.SetAtomMapNum(0)
+        a = Chem.MolToSmiles(a, canonical=False)
 
-    str_ = ""
-    for i in c:
-        str_ = str_ + "<{}>".format(",".join(i))
-    txt = a + ">>>" + b + str_
+        str_ = ""
+        for i in c:
+            str_ = str_ + "<{}>".format(",".join(i))
+        txt = a + ">>>" + b + str_
 
-    return iso_to_symbo(txt, dic_num_to_str)
+        return iso_to_symbo(txt, dic_num_to_str)
+    except:
+        # When it fails, it is usually caused by kekulizing issues in
+        # run_get_p_b_l_forward call in run_get_p_b_l_check, which 
+        # will return an empty list,causing unpacking problems of 
+        # get_b_smiles_check.
+        return " >>> "
 
 
 def get_edit_from_e_smiles(text):

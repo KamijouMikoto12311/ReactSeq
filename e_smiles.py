@@ -4,7 +4,7 @@ import os
 import sys
 import copy
 import re
-from typing import List, Any
+from typing import List, Dict, Any
 from indigo import *
 
 indigo = Indigo()
@@ -68,7 +68,7 @@ def map_reac_and_frag(reac_mols: List[Chem.Mol], frag_mols: List[Chem.Mol]):
     frag_maps = [[atom.GetAtomMapNum() for atom in mol.GetAtoms()] for mol in frag_mols]
 
     overlaps = {i: [] for i in range(len(frag_mols))}
-    max_overlaps = {}
+    max_overlaps: Dict[int, int] = {}
     for i, fmap in enumerate(frag_maps):
         overlaps[i].extend([len(set(fmap).intersection(set(rmap))) for rmap in reac_maps])
         max_overlaps[i] = overlaps[i].index(max(overlaps[i]))
@@ -191,70 +191,6 @@ def apply_edits_to_mol_break(mol, edits):
     pred_mol = Chem.RemoveHs(pred_mol, sanitize=False)
 
     return pred_mol
-
-
-def find_reac_edit(frag_mols_1, reac_mols_1, core_edits):
-
-    reac_mol_map_num = [i.GetAtomMapNum() for i in reac_mols_1.GetAtoms()]
-    frag_mol_map_num = [i.GetAtomMapNum() for i in frag_mols_1.GetAtoms()]
-    lg_map_num = [i for i in reac_mol_map_num if i not in frag_mol_map_num]
-    attach_map_num = 0
-
-    reac_edit = []
-
-    core_edits = core_edits + [":".join([i.split(":")[1], i.split(":")[0], i.split(":")[2], i.split(":")[3]]) for i in core_edits]
-
-    for core_edit in core_edits:
-        core_edit_ = core_edit.split(":")
-        if float(core_edit_[3]) == 0 and int(core_edit_[0]) in frag_mol_map_num:
-            attach_map_num = int(core_edit_[0])
-        elif float(core_edit_[2]) - float(core_edit_[3]) > 0 and int(core_edit_[0]) in frag_mol_map_num:
-            attach_map_num = int(core_edit_[0])
-
-        else:
-            continue
-
-        if str(attach_map_num) != "0" and str(attach_map_num) != core_edit_[0]:
-            continue
-
-        frag_mols_1_amap = {atom.GetAtomMapNum(): atom.GetIdx() for atom in frag_mols_1.GetAtoms()}
-        reac_mols_1_amap = {atom.GetAtomMapNum(): atom.GetIdx() for atom in reac_mols_1.GetAtoms()}
-
-        frag_attach_H = frag_mols_1.GetAtomWithIdx(frag_mols_1_amap[attach_map_num]).GetNumExplicitHs()
-        reac_attach_H = reac_mols_1.GetAtomWithIdx(reac_mols_1_amap[attach_map_num]).GetNumExplicitHs()
-
-        frag_attach_charge = frag_mols_1.GetAtomWithIdx(frag_mols_1_amap[attach_map_num]).GetFormalCharge()
-        reac_attach_charge = reac_mols_1.GetAtomWithIdx(reac_mols_1_amap[attach_map_num]).GetFormalCharge()
-
-        if lg_map_num != []:
-            for bond in reac_mols_1.GetBonds():
-                EndMapNum = bond.GetEndAtom().GetAtomMapNum()
-                BeginMapNum = bond.GetBeginAtom().GetAtomMapNum()
-
-                if (BeginMapNum == attach_map_num) and (EndMapNum in lg_map_num):
-                    reac_edit.append("{}:{}:{}:{}".format(BeginMapNum, EndMapNum, bond.GetBondTypeAsDouble(), 0.0))
-                elif (EndMapNum == attach_map_num) and (BeginMapNum in lg_map_num):
-
-                    reac_edit.append("{}:{}:{}:{}".format(EndMapNum, BeginMapNum, bond.GetBondTypeAsDouble(), 0.0))
-
-        elif lg_map_num == []:
-
-            if Chem.MolToSmiles(reac_mols_1) == Chem.MolToSmiles(frag_mols_1):
-                reac_edit.append("{}:{}:{}:{}".format(attach_map_num, 0, 0.0, 0.0))
-            if (reac_attach_H - frag_attach_H) == 1 and (reac_attach_charge - frag_attach_charge) == 0:
-                reac_edit.append("{}:{}:{}:{}".format(attach_map_num, 0, 1.0, 0.0))
-            if (reac_attach_H - frag_attach_H) == 2 and (reac_attach_charge - frag_attach_charge) == 0:
-                reac_edit.append("{}:{}:{}:{}".format(attach_map_num, 0, 2.0, 0.0))
-
-        if (reac_attach_charge - frag_attach_charge) == -1:
-            if "{}:{}:{}:{}".format(attach_map_num, 0, 0.0, -1.0) not in reac_edit:
-                reac_edit.append("{}:{}:{}:{}".format(attach_map_num, 0, 0.0, -1.0))
-
-        if (reac_attach_charge - frag_attach_charge) == 1:
-            if "{}:{}:{}:{}".format(attach_map_num, 0, 0.0, 1.0) not in reac_edit:
-                reac_edit.append("{}:{}:{}:{}".format(attach_map_num, 0, 0.0, 1.0))
-
-    return reac_edit
 
 
 def correct_mol_1(mol, is_nitrine_c):
@@ -389,33 +325,6 @@ def get_atom_map_stereo_dic(mol):
         b_map, e_map = map_a[bond.GetBeginAtomIdx()], map_a[bond.GetEndAtomIdx()]
         stereo_dic[tuple(sorted([b_map, e_map]))] = bond.GetStereo()
     return stereo_dic
-
-
-def cano_smiles_map(smiles):
-    """
-    Generates a canonical SMILES string while preserving atom mapping.
-
-    Parameters
-    ----------
-    smiles : str
-        Input SMILES string.
-
-    Returns
-    -------
-    smiles : str
-        Canonicalized SMILES string with atom mapping retained.
-    """
-    atom_map_lis = []
-    mol = Chem.MolFromSmiles(smiles, sanitize=False)
-    for atom in mol.GetAtoms():
-        atom_map_lis.append(atom.GetAtomMapNum())
-        atom.SetAtomMapNum(0)
-    smiles = Chem.MolToSmiles(mol, canonical=False, kekuleSmiles=True)
-    mol = Chem.MolFromSmiles(smiles, sanitize=False)
-    for atom in mol.GetAtoms():
-        atom.SetAtomMapNum(atom_map_lis[atom.GetIdx()])
-    smiles = Chem.MolToSmiles(mol, canonical=False, kekuleSmiles=True)
-    return smiles
 
 
 def get_stereo_edit_mine(reac_mol, prod_mol):
@@ -1236,405 +1145,12 @@ def get_chair_dict_without_atom_map(temp_p):
     return temp_dic
 
 
-def run_get_p_b_l(rxn_smi):
-    """
-    Processes a reaction SMILES string to align reactants and products,
-    identify molecular edits, and reconstruct the overall reaction structure.
-
-    Args:
-        rxn_smi (str): A reaction SMILES string in the format "reactants>>products".
-
-    Returns:
-        str or None: Returns an error type if certain conditions are not met,
-                     otherwise performs processing without returning a value.
-    """
-    try:
-        r, p = rxn_smi.split(">>")
-
-        if Chem.MolFromSmiles(p).GetNumAtoms() >= 150 or Chem.MolFromSmiles(r).GetNumAtoms() >= 150:
-            print("error type 3")
-            return "error type 3"
-        else:
-            pass
-
-        r, p = cano_smiles_map(r), cano_smiles_map(p)
-
-        reac_mol, prod_mol = align_kekule_pairs(r, p)
-        reac_mol = Chem.MolFromSmiles(Chem.MolToSmiles(reac_mol, kekuleSmiles=True), sanitize=False)
-
-        reac_smiles_temp = Chem.MolToSmiles(reac_mol, kekuleSmiles=True)
-        reac_mol_temp = Chem.MolFromSmiles(reac_smiles_temp)
-
-        if reac_mol_temp != None and Chem.MolToSmiles(reac_mol_temp) == Chem.MolToSmiles(Chem.MolFromSmiles(r)):
-            pass
-        else:
-            r_k = get_kekule_aligned_r(r, p)
-            if count_kekule_d(r_k, p) == 0:
-                reac_mol, prod_mol = Chem.MolFromSmiles(r_k), Chem.MolFromSmiles(p)
-                Chem.Kekulize(reac_mol)
-                Chem.Kekulize(prod_mol)
-            else:
-                reac_mol, prod_mol = Chem.MolFromSmiles(r_k), Chem.MolFromSmiles(p)
-                Chem.Kekulize(reac_mol)
-                Chem.Kekulize(prod_mol)
-
-        core_edits_add = [i for i in core_edits if (float(i.split(":")[2]) == 0) and (float(i.split(":")[1]) != 0)]
-
-        core_edits = [i for i in core_edits if i not in core_edits_add]
-
-        edit_c = [i for i in core_edits if (float(i.split(":")[-1]) > 0)]
-        edit_b = [i for i in core_edits if (float(i.split(":")[-1]) == 0)]
-
-        chai_edits = get_chai_edit_mine(Chem.MolFromSmiles(r), Chem.MolFromSmiles(p))
-
-        stereo_edits = get_stereo_edit_mine(Chem.MolFromSmiles(r), Chem.MolFromSmiles(p))
-
-        charge_edits = get_charge_edit_mine(reac_mol, prod_mol, core_edits)
-
-        o_p_Chiral_dic = get_atom_map_chai_dic(Chem.MolFromSmiles(p))
-        o_p_Stereo_dic = get_atom_map_stereo_dic(Chem.MolFromSmiles(p))
-
-        frag_mol = apply_edits_to_mol_break(prod_mol, edit_b)
-        frag_mol = apply_edits_to_mol_change(frag_mol, edit_c)
-
-        frag_mol = apply_edits_to_mol_connect(frag_mol, core_edits_add)
-        frag_mol = remove_s_H(frag_mol)
-
-        reac_mols = Chem.GetMolFrags(reac_mol, asMols=True, sanitizeFrags=False)
-        frag_mols = Chem.GetMolFrags(frag_mol, asMols=True, sanitizeFrags=False)
-
-        if len(reac_mols) != len(frag_mols):
-            frag_mols = [frag_mol for frag_mol in frag_mols if Chem.MolToSmiles(frag_mol) != "[H]"]
-        else:
-            pass
-
-        if len(reac_mols) != len(frag_mols):
-            frag_mols = [frag_mol]
-        else:
-            pass
-
-        if len(reac_mols) == len(frag_mols):
-            reac_mols, frag_mols = map_reac_and_frag(reac_mols, frag_mols)
-        else:
-            print("error type 0")
-
-        lg_map_lis_temp = get_lg_map_lis(frag_mols[:], reac_mols[:], core_edits, prod_mol)
-
-        lg_map_lis = []
-        for lg, map_ in lg_map_lis_temp:
-            lg, map_ = copy.deepcopy(lg), copy.deepcopy(map_)
-            map_new = []
-            if lg.count(":") > 1:
-                lg = Chem.MolFromSmiles(lg)
-                Chem.Kekulize(lg)
-                for atom in lg.GetAtoms():
-                    if atom.GetAtomMapNum() == 0:
-                        map_new.append("*")
-                    else:
-                        map_new.append(map_.pop(0))
-
-                lg_smiles = Chem.MolToSmiles(lg, kekuleSmiles=True)
-                rank = list(Chem.CanonicalRankAtoms(lg, breakTies=False))
-
-                map_new = sorted(map_new, key=lambda x: rank[map_new.index(x)])
-                map_new = [i for i in map_new if i != "*"]
-
-                lg_map_lis.append((lg_smiles, map_new))
-            else:
-                lg_map_lis.append((lg, map_))
-
-        total_mol = frag_mol
-
-        for lg_smile, map_nums in lg_map_lis[:]:
-
-            if lg_smile not in ["-1.0", "1.0", "2.0"]:
-
-                lg = Chem.MolFromSmiles(lg_smile)
-
-                total_mol_map_num_lis = [i.GetAtomMapNum() for i in total_mol.GetAtoms()]
-                max_map = max(total_mol_map_num_lis)
-                count = 1
-                for atom in lg.GetAtoms():
-                    if atom.GetAtomMapNum() == 1:
-                        atom.SetAtomMapNum(max_map + count)
-                        count += 1
-                    else:
-                        pass
-
-                total_mol_map_num_lis = [i.GetAtomMapNum() for i in total_mol.GetAtoms()]
-                max_map = max(total_mol_map_num_lis)
-
-                for atom in lg.GetAtoms():
-                    if atom.GetAtomMapNum() == 0:
-                        atom.SetAtomMapNum(max_map + count)
-                        count += 1
-                    else:
-                        pass
-
-                total_mol = Chem.CombineMols(total_mol, lg)
-
-                amap = {atom.GetAtomMapNum(): atom.GetIdx() for atom in total_mol.GetAtoms()}
-                new_mol = Chem.RWMol(total_mol)
-
-                is_multi_bond = 0
-
-                for idx in range(len(map_nums)):
-                    map_num = map_nums[idx]
-                    if lg_smile.count(":") == len(map_nums):
-                        lg_map = max_map + 1 + idx
-                        atom = total_mol.GetAtomWithIdx(amap[lg_map])
-                        is_multi_bond = 0
-                    else:
-                        lg_map = max_map + 1
-                        atom = total_mol.GetAtomWithIdx(amap[lg_map])
-                        is_multi_bond = 1
-
-                    if (
-                        atom.GetSymbol() == "O"
-                        and atom.GetTotalValence() == 0
-                        and atom.GetFormalCharge() == 0
-                        and is_multi_bond == 0
-                    ):
-                        bond_float = 2.0
-                    elif (
-                        atom.GetSymbol() == "S"
-                        and atom.GetTotalValence() in [0, 2, 4]
-                        and atom.GetFormalCharge() == 0
-                        and is_multi_bond == 0
-                    ):
-                        bond_float = 2.0
-                    elif (
-                        atom.GetSymbol() == "S"
-                        and atom.GetTotalValence() == 1
-                        and atom.GetFormalCharge() == 1
-                        and is_multi_bond == 0
-                    ):
-                        bond_float = 2.0
-                    elif (
-                        atom.GetSymbol() == "P"
-                        and atom.GetTotalValence() == 3
-                        and atom.GetFormalCharge() == 0
-                        and is_multi_bond == 0
-                    ):
-                        bond_float = 2.0
-                    elif (
-                        atom.GetSymbol() == "C"
-                        and atom.GetTotalValence() == 2
-                        and atom.GetFormalCharge() == 0
-                        and is_multi_bond == 0
-                    ):
-                        bond_float = 2.0
-                    elif (
-                        atom.GetSymbol() == "N"
-                        and atom.GetTotalValence() == 2
-                        and atom.GetFormalCharge() == 1
-                        and is_multi_bond == 0
-                    ):
-                        bond_float = 2.0
-                    elif (
-                        atom.GetSymbol() == "N"
-                        and atom.GetTotalValence() == 1
-                        and atom.GetFormalCharge() == 0
-                        and is_multi_bond == 0
-                    ):
-                        bond_float = 2.0
-                    elif (
-                        atom.GetSymbol() == "N"
-                        and atom.GetTotalValence() == 0
-                        and atom.GetFormalCharge() == -1
-                        and is_multi_bond == 0
-                    ):
-                        bond_float = 2.0
-                    elif (
-                        atom.GetSymbol() == "Se"
-                        and atom.GetTotalValence() == 2
-                        and atom.GetFormalCharge() == 0
-                        and is_multi_bond == 0
-                    ):
-                        bond_float = 2.0
-                    elif (
-                        atom.GetSymbol() == "Si"
-                        and atom.GetTotalValence() == 2
-                        and atom.GetFormalCharge() == 0
-                        and is_multi_bond == 0
-                    ):
-                        bond_float = 2.0
-                    elif (
-                        atom.GetSymbol() == "Mn"
-                        and atom.GetTotalValence() == 5
-                        and atom.GetFormalCharge() == 0
-                        and is_multi_bond == 0
-                    ):
-                        bond_float = 2.0
-                    elif (
-                        atom.GetSymbol() == "Cr"
-                        and atom.GetTotalValence() == 4
-                        and atom.GetFormalCharge() == 0
-                        and is_multi_bond == 0
-                    ):
-                        bond_float = 2.0
-                    elif (
-                        atom.GetSymbol() == "O"
-                        and atom.GetTotalValence() == 1
-                        and atom.GetFormalCharge() == 1
-                        and is_multi_bond == 0
-                    ):
-                        bond_float = 2.0
-                    elif (
-                        atom.GetSymbol() == "N"
-                        and atom.GetTotalValence() == 0
-                        and atom.GetFormalCharge() == 0
-                        and is_multi_bond == 0
-                    ):
-                        bond_float = 3.0
-                    elif (
-                        atom.GetSymbol() == "C"
-                        and atom.GetTotalValence() == 1
-                        and atom.GetFormalCharge() == 0
-                        and is_multi_bond == 0
-                    ):
-                        bond_float = 3.0
-                    elif (
-                        atom.GetSymbol() == "C"
-                        and atom.GetTotalValence() == 0
-                        and atom.GetFormalCharge() == -1
-                        and is_multi_bond == 0
-                    ):
-                        bond_float = 3.0
-                    else:
-                        bond_float = 1.0
-
-                    new_mol.AddBond(amap[map_num], amap[lg_map], BOND_FLOAT_TO_TYPE[bond_float])
-                total_mol = new_mol.GetMol()
-
-            else:
-
-                map_num = map_nums[0]
-
-                amap = {atom.GetAtomMapNum(): atom.GetIdx() for atom in total_mol.GetAtoms()}
-                atom = total_mol.GetAtomWithIdx(amap[map_num])
-                atom.SetNumRadicalElectrons(0)
-                atom.SetFormalCharge(int(atom.GetFormalCharge() + float(lg_smile)))
-
-        total_mol = correct_mol_1(total_mol, is_nitrine_c=True)
-
-        b = correct_mol(total_mol, keep_map=True)
-
-        b_Chiral_dic = get_atom_map_chai_dic(b)
-        b_Stereo_dic = get_atom_map_stereo_dic(b)
-
-        dic_map_idx = dict([(i.GetAtomMapNum(), i.GetIdx()) for i in b.GetAtoms()])
-
-        act = 0
-        for b_map, Chiral in b_Chiral_dic.items():
-            if b_map not in o_p_Chiral_dic.keys():
-                pass
-            elif (
-                b_map in o_p_Chiral_dic.keys()
-                and b_Chiral_dic[b_map] != o_p_Chiral_dic[b_map]
-                and b_map not in [int(i.split(":")[0]) for i in chai_edits]
-            ):
-
-                act = 1
-                atom = b.GetAtomWithIdx(dic_map_idx[b_map])
-
-                if atom.GetChiralTag() == Chem.ChiralType.CHI_TETRAHEDRAL_CCW:
-                    atom.SetChiralTag(Chem.ChiralType.CHI_TETRAHEDRAL_CW)
-                elif atom.GetChiralTag() == Chem.ChiralType.CHI_TETRAHEDRAL_CW:
-                    atom.SetChiralTag(Chem.ChiralType.CHI_TETRAHEDRAL_CCW)
-
-        if act == 1:
-            pass
-
-        for b_map, Stereo in b_Stereo_dic.items():
-            if b_map not in o_p_Stereo_dic.keys():
-                pass
-            elif (
-                b_map in o_p_Stereo_dic.keys()
-                and Stereo != o_p_Stereo_dic[b_map]
-                and b_map not in [tuple([int(i) for i in i.split(":")[:2]]) for i in stereo_edits]
-            ):
-                bond = b.GetBondBetweenAtoms(dic_map_idx[b_map[0]], dic_map_idx[b_map[1]])
-
-                bond.SetStereo(o_p_Stereo_dic[b_map])
-
-        b = apply_charge_change(b, charge_edits)
-
-        if chai_edits == []:
-            o_chai_edits = get_original_chair_edit(p, b)
-            b = apply_chirality_change(b, o_chai_edits)
-
-        else:
-            b = apply_chirality_change(b, chai_edits)
-
-        b = Chem.MolFromSmiles(Chem.MolToSmiles(b, canonical=False))
-        b = apply_stereo_change(b, stereo_edits)
-
-        for atom in b.GetAtoms():
-            atom.SetAtomMapNum(0)
-
-        for bond in b.GetBonds():
-            if bond.GetStereo() == Chem.rdchem.BondStereo.STEREONONE:
-
-                bond.SetStereo(Chem.rdchem.BondStereo.STEREOANY)
-            else:
-                pass
-
-        pre_smiles = Chem.MolToSmiles(b)
-
-        pre_smiles = (
-            pre_smiles.replace("[H]/C=C/", "C=C")
-            .replace("[H]/C=C(\\", "C=C(")
-            .replace("[H]/C=C(/", "C=C(")
-            .replace("[MgH2]", "[Mg]")
-            .replace("/C=N\\", "C=C")
-        )
-
-        pre_smiles = Chem.MolToSmiles(Chem.MolFromSmiles(pre_smiles))
-
-        reac_mol = Chem.MolFromSmiles(r)
-
-        for atom in reac_mol.GetAtoms():
-            atom.SetAtomMapNum(0)
-        reac_mol_smiles = Chem.MolToSmiles(reac_mol)
-        reac_mol_smiles = Chem.MolToSmiles(Chem.MolFromSmiles(reac_mol_smiles))
-
-        if [float(i[-3:]) for i in core_edits_add] == []:
-            max_add = 0
-        elif max([float(i[-3:]) for i in core_edits_add]) == 1:
-            max_add = 1
-        else:
-            max_add = 2
-
-        charges = [int(i[-1]) for i in charge_edits] + [0]
-
-        if (
-            pre_smiles == reac_mol_smiles
-            and len(core_edits_add) <= 1
-            and max_add <= 1
-            and max(charges) <= 1
-            and min(charges) >= -1
-        ):
-
-            return [p, core_edits, chai_edits, stereo_edits, charge_edits, core_edits_add, lg_map_lis]
-        else:
-            print(pre_smiles, reac_mol_smiles, chai_edits, stereo_edits)
-            return "error type 1"
-
-    except:
-        print("error type 2")
-        return "error type 2"
-
-
 def run_get_p_b_l_forward(rxn_smi):
     try:
         r, p = rxn_smi.split(">>")
 
         if Chem.MolFromSmiles(p).GetNumAtoms() >= 150 or Chem.MolFromSmiles(r).GetNumAtoms() >= 150:
-
-            return "error type 1"
-        else:
-            pass
+            raise ValueError("Too many atoms")
 
         r, p = cano_smiles_map(r), cano_smiles_map(p)
         reac_mol, prod_mol = align_kekule_pairs(r, p)
@@ -1667,9 +1183,6 @@ def run_get_p_b_l_forward(rxn_smi):
         stereo_edits = get_stereo_edit_mine(Chem.MolFromSmiles(r), Chem.MolFromSmiles(p))
         charge_edits = get_charge_edit_mine(reac_mol, prod_mol, core_edits)
 
-        o_p_Chiral_dic = get_atom_map_chai_dic(Chem.MolFromSmiles(p))
-        o_p_Stereo_dic = get_atom_map_stereo_dic(Chem.MolFromSmiles(p))
-
         frag_mol = apply_edits_to_mol_break(prod_mol, edit_b)
         frag_mol = apply_edits_to_mol_change(frag_mol, edit_c)
 
@@ -1677,7 +1190,9 @@ def run_get_p_b_l_forward(rxn_smi):
         frag_mol = remove_s_H(frag_mol)
 
         reac_mols = Chem.GetMolFrags(reac_mol, asMols=True, sanitizeFrags=False)
+        reac_mols = list(reac_mols)
         frag_mols = Chem.GetMolFrags(frag_mol, asMols=True, sanitizeFrags=False)
+        frag_mols = list(frag_mols)
 
         if len(reac_mols) != len(frag_mols):
             frag_mols = [frag_mol for frag_mol in frag_mols if Chem.MolToSmiles(frag_mol) != "[H]"]
@@ -1721,7 +1236,7 @@ def run_get_p_b_l_forward(rxn_smi):
         return [p, core_edits, chai_edits, stereo_edits, charge_edits, core_edits_add, lg_map_lis]
 
     except:
-        return "error type 2"
+        raise ValueError("error type 2")
 
 
 def run_get_p_b_l_backward(p, core_edits, chai_edits, stereo_edits, charge_edits, core_edits_add, lg_map_lis):
@@ -2054,8 +1569,7 @@ def get_rm_token_lis(concise_smiles, detailed_smiles):
     if detailed_smiles == concise_smiles and len(rm_token_lis) == detailed_smiles_length:
         return rm_token_lis
     else:
-        print("error")
-        pass
+        raise ValueError("detailed_smiles == concise_smiles and len(rm_token_lis) == detailed_smiles_length is not satisfied!")
 
 
 def get_bond_token_lis(detailed_smiles):
@@ -2203,286 +1717,6 @@ def get_t_smiles(e_smiles, o_smiles):
     return t_smiles
 
 
-def get_b_smiles(p_b):
-    """
-    This function processes a given set of molecular edits and generates a new SMILES string.
-
-    Parameters:
-    p_b (list): A list containing the following elements:
-        - p_b[0] (str): The original SMILES string.
-        - p_b[1] (list): A list of core edit operations (e.g., bond changes).
-        - p_b[2] (list): A list of chain edit operations (e.g., chirality changes).
-        - p_b[3] (list): A list of stereochemical edits (e.g., cis-trans isomerization).
-        - p_b[4] (list): A list of charge edits (e.g., charge changes).
-        - p_b[5] (list): A list of additional core edits.
-
-    Returns:
-    str: The updated SMILES string after applying all the edits.
-    """
-    o_smiles = p_b[0]
-    core_edits = p_b[1]
-    chai_edits = p_b[2]
-    stereo_edits = p_b[3]
-    charge_edits = p_b[4]
-    core_edits_add = p_b[5]
-    atom_idx_mark_dic = {}
-
-    for edit in core_edits:
-        b = int(edit.split(":")[0])
-        e = int(edit.split(":")[1])
-        new_b = edit.split(":")[3]
-        if min([b, e]) == 0:
-            atom_map = max([b, e])
-            if new_b == "0.0":
-                atom_idx_mark_dic[atom_map] = 9
-            else:
-                pass
-
-    for edit in chai_edits:
-
-        edit_l = edit.split(":")
-        if edit_l[3] == "R":
-            if int(edit_l[0]) not in atom_idx_mark_dic.keys():
-                atom_idx_mark_dic[int(edit_l[0])] = 10
-            else:
-                atom_idx_mark_dic[int(edit_l[0])] = 10 + atom_idx_mark_dic[int(edit_l[0])]
-        elif edit_l[3] == "S":
-            if int(edit_l[0]) not in atom_idx_mark_dic.keys():
-                atom_idx_mark_dic[int(edit_l[0])] = 20
-            else:
-                atom_idx_mark_dic[int(edit_l[0])] = 20 + atom_idx_mark_dic[int(edit_l[0])]
-        elif edit_l[3] == "?":
-            if int(edit_l[0]) not in atom_idx_mark_dic.keys():
-                atom_idx_mark_dic[int(edit_l[0])] = 30
-            else:
-                atom_idx_mark_dic[int(edit_l[0])] = 30 + atom_idx_mark_dic[int(edit_l[0])]
-
-    for edit in charge_edits:
-
-        edit_l = edit.split(":")
-        if edit_l[3] == "1":
-            if int(edit_l[0]) not in atom_idx_mark_dic.keys():
-                atom_idx_mark_dic[int(edit_l[0])] = 200
-            else:
-                atom_idx_mark_dic[int(edit_l[0])] = 200 + atom_idx_mark_dic[int(edit_l[0])]
-                pass
-
-        elif edit_l[3] == "0":
-            if int(edit_l[0]) not in atom_idx_mark_dic.keys():
-                atom_idx_mark_dic[int(edit_l[0])] = 400
-            else:
-                atom_idx_mark_dic[int(edit_l[0])] = 400 + atom_idx_mark_dic[int(edit_l[0])]
-
-        elif edit_l[3] == "-1":
-            if int(edit_l[0]) not in atom_idx_mark_dic.keys():
-                atom_idx_mark_dic[int(edit_l[0])] = 600
-            else:
-                atom_idx_mark_dic[int(edit_l[0])] = 600 + atom_idx_mark_dic[int(edit_l[0])]
-
-    for edit in core_edits_add:
-        edit_l = edit.split(":")
-
-        if int(edit_l[0]) not in atom_idx_mark_dic.keys():
-            atom_idx_mark_dic[int(edit_l[0])] = 100
-        else:
-            atom_idx_mark_dic[int(edit_l[0])] = 100 + atom_idx_mark_dic[int(edit_l[0])]
-
-        if int(edit_l[1]) not in atom_idx_mark_dic.keys():
-            atom_idx_mark_dic[int(edit_l[1])] = 100
-        else:
-            atom_idx_mark_dic[int(edit_l[1])] = 100 + atom_idx_mark_dic[int(edit_l[1])]
-
-    a = Chem.MolFromSmiles(o_smiles, sanitize=False)
-
-    for atom in a.GetAtoms():
-        if atom.GetAtomMapNum() in atom_idx_mark_dic.keys():
-            atom_map = atom.GetAtomMapNum()
-            atom.SetIsotope(atom_idx_mark_dic[atom_map])
-        else:
-            pass
-        atom.SetAtomMapNum(0)
-
-    mol = copy.deepcopy(a)
-
-    detailed_smiles = Chem.MolToSmiles(mol, canonical=False, allBondsExplicit=True, kekuleSmiles=True)
-
-    concise_smiles = Chem.MolToSmiles(mol, canonical=False, kekuleSmiles=True)
-    concise_smiles_no_chirality = Chem.MolToSmiles(mol, canonical=False, isomericSmiles=False, kekuleSmiles=True)
-    atom_pair_bond_idx_dic = get_atom_pair_bond_idx_dic(concise_smiles_no_chirality)
-    rm_token_lis = get_rm_token_lis(concise_smiles, detailed_smiles)
-    bond_token_lis = get_bond_token_lis(detailed_smiles)
-    bond_token_idx_dic = get_bond_token_idx_dic(bond_token_lis)
-
-    bond_idx_mark_dic = {}
-    for edit in core_edits:
-
-        b = int(edit.split(":")[0])
-        e = int(edit.split(":")[1])
-        org_b = edit.split(":")[2]
-        new_b = edit.split(":")[3]
-        if min([b, e]) != 0:
-            bond_idx = atom_pair_bond_idx_dic[min([b, e]), max([b, e])]
-            if new_b == "0.0":
-                mark = "!"
-            elif new_b == "1.0":
-                mark = "_"
-            elif new_b == "2.0":
-                mark = ";"
-            elif new_b == "3.0":
-                mark = "^"
-            bond_idx_mark_dic[bond_idx] = mark
-        else:
-            pass
-
-    for edit in stereo_edits:
-
-        b = int(edit.split(":")[0])
-        e = int(edit.split(":")[1])
-        new_b = edit.split(":")[3]
-        if min([b, e]) != 0:
-            bond_idx = atom_pair_bond_idx_dic[min([b, e]), max([b, e])]
-            if bond_idx not in bond_idx_mark_dic.keys():
-
-                if new_b == "a":
-                    mark = "&"
-                elif new_b == "e":
-                    mark = "{"
-                elif new_b == "z":
-                    mark = "}"
-                bond_idx_mark_dic[bond_idx] = mark
-            else:
-                bond_idx in bond_idx_mark_dic.keys()
-                if new_b == "a":
-                    mark = "。"
-                elif new_b == "e":
-                    mark = "《"
-                elif new_b == "z":
-                    mark = "》"
-                bond_idx_mark_dic[bond_idx] = mark
-        else:
-            pass
-
-    for bond_idx, mark in bond_idx_mark_dic.items():
-        token_idx = bond_token_idx_dic[bond_idx]
-        rm_token_lis[token_idx] = mark
-
-    new_smiles_lis = []
-    for i in range(len(rm_token_lis)):
-        if rm_token_lis[i] == " ":
-            new_smiles_lis.append(detailed_smiles[i])
-        elif rm_token_lis[i][-1] in ["!", "_", ";", "^", "&", "{", "}", "。", "《", "》"]:
-            new_smiles_lis.append(rm_token_lis[i])
-        else:
-            pass
-
-    caption = "".join(new_smiles_lis)
-    out_b_smiles_lis.append(caption)
-
-    caption_r = caption
-
-    t_smiles = get_t_smiles(caption_r, o_smiles)
-
-    b_smiles, detailed_smiles = get_b_smiles_detailed_smiles(caption_r, t_smiles)
-
-    bond_dic = get_bond_dic(b_smiles, detailed_smiles)
-
-    atom_pair_bond_idx = {}
-    for atom_pair, bond_idx in get_atom_pair_bond_idx_dic(o_smiles).items():
-        atom_pair_bond_idx[bond_idx] = atom_pair
-
-    mol = Chem.MolFromSmiles(t_smiles)
-    Chem.Kekulize(mol)
-    core_edits_ = []
-    chai_edits_ = []
-    stereo_edits_ = []
-    charge_edits_ = []
-    core_edits_add_ = []
-
-    for bond_idx, mark in bond_dic.items():
-        b, e = atom_pair_bond_idx[bond_idx]
-        o_bond = mol.GetBondBetweenAtoms(b - 1, e - 1).GetBondTypeAsDouble()
-        if mark == "!":
-            n_bond = "0.0"
-            core_edits_.append("{}:{}:{}:{}".format(b, e, o_bond, n_bond))
-        elif mark == "_":
-            n_bond = "1.0"
-            core_edits_.append("{}:{}:{}:{}".format(b, e, o_bond, n_bond))
-        elif mark == ";":
-            n_bond = "2.0"
-            core_edits_.append("{}:{}:{}:{}".format(b, e, o_bond, n_bond))
-        elif mark == "^":
-            n_bond = "3.0"
-            core_edits_.append("{}:{}:{}:{}".format(b, e, o_bond, n_bond))
-        elif mark == "&":
-            stereo_edits_.append("{}:{}:{}:{}".format(b, e, 0, "a"))
-        elif mark == "{":
-            stereo_edits_.append("{}:{}:{}:{}".format(b, e, 0, "e"))
-        elif mark == "}":
-            stereo_edits_.append("{}:{}:{}:{}".format(b, e, 0, "z"))
-        elif mark == "。":
-            n_bond = "2.0"
-            core_edits_.append("{}:{}:{}:{}".format(b, e, o_bond, n_bond))
-            stereo_edits_.append("{}:{}:{}:{}".format(b, e, 0, "a"))
-        elif mark == "《":
-            n_bond = "2.0"
-            core_edits_.append("{}:{}:{}:{}".format(b, e, o_bond, n_bond))
-            stereo_edits_.append("{}:{}:{}:{}".format(b, e, 0, "e"))
-        elif mark == "》":
-            n_bond = "2.0"
-            core_edits_.append("{}:{}:{}:{}".format(b, e, o_bond, n_bond))
-            stereo_edits_.append("{}:{}:{}:{}".format(b, e, 0, "z"))
-
-    core_edits_add_atom_lis = []
-
-    for atom in mol.GetAtoms():
-        Isotope = atom.GetIsotope()
-        g_w = Isotope % 10
-        s_w = Isotope % 100 // 10
-        b_w = Isotope // 100
-
-        if g_w == 9:
-            core_edits_.append("{}:{}:{}:{}".format(atom.GetIdx() + 1, 0, "1.0", "0.0"))
-        else:
-            pass
-
-        if s_w == 1:
-            chai_edits_.append("{}:{}:{}:{}".format(atom.GetIdx() + 1, 0, "0", "R"))
-        elif s_w == 2:
-            chai_edits_.append("{}:{}:{}:{}".format(atom.GetIdx() + 1, 0, "0", "S"))
-        elif s_w == 3:
-            chai_edits_.append("{}:{}:{}:{}".format(atom.GetIdx() + 1, 0, "0", "?"))
-
-        if b_w == 2 or b_w == 3:
-            charge_edits_.append("{}:{}:{}:{}".format(atom.GetIdx() + 1, 0, "0", 1))
-        elif b_w == 4 or b_w == 5:
-            charge_edits_.append("{}:{}:{}:{}".format(atom.GetIdx() + 1, 0, "0", 0))
-        elif b_w == 6 or b_w == 7:
-            charge_edits_.append("{}:{}:{}:{}".format(atom.GetIdx() + 1, 0, "0", -1))
-
-        if b_w % 2 == 1:
-            core_edits_add_atom_lis.append(atom.GetIdx() + 1)
-
-    if core_edits_add_atom_lis != []:
-        core_edits_add_.append("{}:{}:{}:{}".format(core_edits_add_atom_lis[0], core_edits_add_atom_lis[1], "0.0", "1.0"))
-    else:
-        pass
-
-    if (
-        sorted(core_edits_) != sorted(core_edits)
-        or sorted(chai_edits_) != sorted(chai_edits)
-        or sorted(stereo_edits_) != sorted(stereo_edits)
-        or sorted(charge_edits_) != sorted(charge_edits)
-        or sorted(core_edits_add_) != sorted(core_edits_add)
-    ):
-        print(core_edits_, core_edits)
-        print(chai_edits_, chai_edits)
-        print(core_edits_add_, core_edits_add)
-        return "error"
-    else:
-        return caption
-        pass
-
-
 def get_b_smiles_forward(p_b):
     o_smiles = p_b[0]
     core_edits = p_b[1]
@@ -2616,7 +1850,6 @@ def get_b_smiles_forward(p_b):
                     mark = "}"
                 bond_idx_mark_dic[bond_idx] = mark
             else:
-                bond_idx in bond_idx_mark_dic.keys()
                 if new_b == "a":
                     mark = "。"
                 elif new_b == "e":

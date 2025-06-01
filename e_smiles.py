@@ -6,6 +6,7 @@ import copy
 import re
 from typing import List, Dict, Any
 from indigo import *
+import rdkit.Chem
 
 indigo = Indigo()
 import rdkit
@@ -1146,97 +1147,99 @@ def get_chair_dict_without_atom_map(temp_p):
 
 
 def run_get_p_b_l_forward(rxn_smi):
+    r, p = rxn_smi.split(">>")
+
+    if Chem.MolFromSmiles(p).GetNumAtoms() >= 150 or Chem.MolFromSmiles(r).GetNumAtoms() >= 150:
+        raise ValueError("Too many atoms")
+
+    r, p = cano_smiles_map(r), cano_smiles_map(p)
+    reac_mol, prod_mol = align_kekule_pairs(r, p)
     try:
-        r, p = rxn_smi.split(">>")
-
-        if Chem.MolFromSmiles(p).GetNumAtoms() >= 150 or Chem.MolFromSmiles(r).GetNumAtoms() >= 150:
-            raise ValueError("Too many atoms")
-
-        r, p = cano_smiles_map(r), cano_smiles_map(p)
-        reac_mol, prod_mol = align_kekule_pairs(r, p)
         reac_mol = Chem.MolFromSmiles(Chem.MolToSmiles(reac_mol, kekuleSmiles=True), sanitize=False)
+    except rdkit.Chem.rdchem.KekulizeException:
+        return []
 
-        reac_smiles_temp = Chem.MolToSmiles(reac_mol, kekuleSmiles=True)
-        reac_mol_temp = Chem.MolFromSmiles(reac_smiles_temp)
+    reac_smiles_temp = Chem.MolToSmiles(reac_mol, kekuleSmiles=True)
+    reac_mol_temp = Chem.MolFromSmiles(reac_smiles_temp)
 
-        if reac_mol_temp != None and Chem.MolToSmiles(reac_mol_temp) == Chem.MolToSmiles(Chem.MolFromSmiles(r)):
-            pass
+    if reac_mol_temp != None and Chem.MolToSmiles(reac_mol_temp) == Chem.MolToSmiles(Chem.MolFromSmiles(r)):
+        pass
+    else:
+        r_k = get_kekule_aligned_r(r, p)
+        if count_kekule_d(r_k, p) == 0:
+            reac_mol, prod_mol = Chem.MolFromSmiles(r_k), Chem.MolFromSmiles(p)
+            Chem.Kekulize(reac_mol)
+            Chem.Kekulize(prod_mol)
         else:
-            r_k = get_kekule_aligned_r(r, p)
-            if count_kekule_d(r_k, p) == 0:
-                reac_mol, prod_mol = Chem.MolFromSmiles(r_k), Chem.MolFromSmiles(p)
-                Chem.Kekulize(reac_mol)
-                Chem.Kekulize(prod_mol)
-            else:
-                reac_mol, prod_mol = Chem.MolFromSmiles(r_k), Chem.MolFromSmiles(p)
-                Chem.Kekulize(reac_mol)
-                Chem.Kekulize(prod_mol)
+            reac_mol, prod_mol = Chem.MolFromSmiles(r_k), Chem.MolFromSmiles(p)
+            Chem.Kekulize(reac_mol)
+            Chem.Kekulize(prod_mol)
 
-        core_edits = get_core_edit_mine(reac_mol, prod_mol)
-        core_edits_add = [i for i in core_edits if (float(i.split(":")[2]) == 0) and (float(i.split(":")[1]) != 0)]
-        core_edits = [i for i in core_edits if i not in core_edits_add]
+    core_edits = get_core_edit_mine(reac_mol, prod_mol)
+    core_edits_add = [i for i in core_edits if (float(i.split(":")[2]) == 0) and (float(i.split(":")[1]) != 0)]
+    core_edits = [i for i in core_edits if i not in core_edits_add]
 
-        edit_c = [i for i in core_edits if (float(i.split(":")[-1]) > 0)]
-        edit_b = [i for i in core_edits if (float(i.split(":")[-1]) == 0)]
+    edit_c = [i for i in core_edits if (float(i.split(":")[-1]) > 0)]
+    edit_b = [i for i in core_edits if (float(i.split(":")[-1]) == 0)]
 
-        chai_edits = get_chai_edit_mine(Chem.MolFromSmiles(r), Chem.MolFromSmiles(p))
-        stereo_edits = get_stereo_edit_mine(Chem.MolFromSmiles(r), Chem.MolFromSmiles(p))
-        charge_edits = get_charge_edit_mine(reac_mol, prod_mol, core_edits)
+    chai_edits = get_chai_edit_mine(Chem.MolFromSmiles(r), Chem.MolFromSmiles(p))
+    stereo_edits = get_stereo_edit_mine(Chem.MolFromSmiles(r), Chem.MolFromSmiles(p))
+    charge_edits = get_charge_edit_mine(reac_mol, prod_mol, core_edits)
 
-        frag_mol = apply_edits_to_mol_break(prod_mol, edit_b)
-        frag_mol = apply_edits_to_mol_change(frag_mol, edit_c)
+    frag_mol = apply_edits_to_mol_break(prod_mol, edit_b)
+    frag_mol = apply_edits_to_mol_change(frag_mol, edit_c)
 
-        frag_mol = apply_edits_to_mol_connect(frag_mol, core_edits_add)
-        frag_mol = remove_s_H(frag_mol)
+    frag_mol = apply_edits_to_mol_connect(frag_mol, core_edits_add)
+    frag_mol = remove_s_H(frag_mol)
 
-        reac_mols = Chem.GetMolFrags(reac_mol, asMols=True, sanitizeFrags=False)
-        reac_mols = list(reac_mols)
-        frag_mols = Chem.GetMolFrags(frag_mol, asMols=True, sanitizeFrags=False)
-        frag_mols = list(frag_mols)
+    reac_mols = Chem.GetMolFrags(reac_mol, asMols=True, sanitizeFrags=False)
+    reac_mols = list(reac_mols)
+    frag_mols = Chem.GetMolFrags(frag_mol, asMols=True, sanitizeFrags=False)
+    frag_mols = list(frag_mols)
 
-        if len(reac_mols) != len(frag_mols):
-            frag_mols = [frag_mol for frag_mol in frag_mols if Chem.MolToSmiles(frag_mol) != "[H]"]
+    if len(reac_mols) != len(frag_mols):
+        frag_mols = [frag_mol for frag_mol in frag_mols if Chem.MolToSmiles(frag_mol) != "[H]"]
+    else:
+        pass
+
+    if len(reac_mols) != len(frag_mols):
+        frag_mols = [frag_mol]
+    else:
+        pass
+
+    if len(reac_mols) == len(frag_mols):
+        reac_mols, frag_mols = map_reac_and_frag(reac_mols, frag_mols)
+    else:
+        pass
+
+    lg_map_lis_temp = get_lg_map_lis(frag_mols[:], reac_mols[:], core_edits, prod_mol)
+
+    lg_map_lis = []
+    for lg, map_ in lg_map_lis_temp:
+        lg, map_ = copy.deepcopy(lg), copy.deepcopy(map_)
+        map_new = []
+        if lg.count(":") > 1:
+            lg = Chem.MolFromSmiles(lg)
+            Chem.Kekulize(lg)
+            for atom in lg.GetAtoms():
+                if atom.GetAtomMapNum() == 0:
+                    map_new.append("*")
+                else:
+                    map_new.append(map_.pop(0))
+
+            lg_smiles = Chem.MolToSmiles(lg, kekuleSmiles=True)
+            rank = list(Chem.CanonicalRankAtoms(lg, breakTies=False))
+            map_new = sorted(map_new, key=lambda x: rank[map_new.index(x)])
+            map_new = [i for i in map_new if i != "*"]
+
+            lg_map_lis.append((lg_smiles, map_new))
         else:
-            pass
+            lg_map_lis.append((lg, map_))
 
-        if len(reac_mols) != len(frag_mols):
-            frag_mols = [frag_mol]
-        else:
-            pass
+    return [p, core_edits, chai_edits, stereo_edits, charge_edits, core_edits_add, lg_map_lis]
 
-        if len(reac_mols) == len(frag_mols):
-            reac_mols, frag_mols = map_reac_and_frag(reac_mols, frag_mols)
-        else:
-            pass
-
-        lg_map_lis_temp = get_lg_map_lis(frag_mols[:], reac_mols[:], core_edits, prod_mol)
-
-        lg_map_lis = []
-        for lg, map_ in lg_map_lis_temp:
-            lg, map_ = copy.deepcopy(lg), copy.deepcopy(map_)
-            map_new = []
-            if lg.count(":") > 1:
-                lg = Chem.MolFromSmiles(lg)
-                Chem.Kekulize(lg)
-                for atom in lg.GetAtoms():
-                    if atom.GetAtomMapNum() == 0:
-                        map_new.append("*")
-                    else:
-                        map_new.append(map_.pop(0))
-
-                lg_smiles = Chem.MolToSmiles(lg, kekuleSmiles=True)
-                rank = list(Chem.CanonicalRankAtoms(lg, breakTies=False))
-                map_new = sorted(map_new, key=lambda x: rank[map_new.index(x)])
-                map_new = [i for i in map_new if i != "*"]
-
-                lg_map_lis.append((lg_smiles, map_new))
-            else:
-                lg_map_lis.append((lg, map_))
-
-        return [p, core_edits, chai_edits, stereo_edits, charge_edits, core_edits_add, lg_map_lis]
-
-    except:
-        raise ValueError("error type 2")
+    # except:
+    #     raise ValueError("error type 2")
 
 
 def run_get_p_b_l_backward(p, core_edits, chai_edits, stereo_edits, charge_edits, core_edits_add, lg_map_lis):
@@ -2223,25 +2226,29 @@ def get_e_smiles(rxn):
     Returns:
     str: ReactSeq string.
     """
-    p_b = run_get_p_b_l_forward(rxn)
-    b_smiles = get_b_smiles_check(p_b)
-    lg_lis = get_lg_forward(p_b[1], p_b[6])
+    try:
+        p_b = run_get_p_b_l_forward(rxn)
+        b_smiles = get_b_smiles_check(p_b)
+        lg_lis = get_lg_forward(p_b[1], p_b[6])
 
-    k = p_b
-    b = b_smiles
-    c = lg_lis
-    a = Chem.MolFromSmiles(k[0], sanitize=False)
+        k = p_b
+        b = b_smiles
+        c = lg_lis
+        a = Chem.MolFromSmiles(k[0], sanitize=False)
 
-    for atom in a.GetAtoms():
-        atom.SetAtomMapNum(0)
-    a = Chem.MolToSmiles(a, canonical=False)
+        for atom in a.GetAtoms():
+            atom.SetAtomMapNum(0)
+        a = Chem.MolToSmiles(a, canonical=False)
 
-    str_ = ""
-    for i in c:
-        str_ = str_ + "<{}>".format(",".join(i))
-    txt = a + ">>>" + b + str_
+        str_ = ""
+        for i in c:
+            str_ = str_ + "<{}>".format(",".join(i))
+        txt = a + ">>>" + b + str_
 
-    return iso_to_symbo(txt, dic_num_to_str)
+        return iso_to_symbo(txt, dic_num_to_str)
+    
+    except:
+        return " >>> "
 
 
 def get_e_smiles_with_check(rxn):

@@ -21,3 +21,9 @@ __pycache__/
 
 # yield
 yield/
+
+# log file
+*.log
+
+# data
+datasets/

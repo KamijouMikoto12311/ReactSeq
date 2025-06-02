@@ -16,8 +16,9 @@ output/*.txt
 # extracted embeddings
 embedding/embedding_reactseq_decoder_edit_mean.csv
 
-# __pycache__ files
+# python files
 __pycache__/
+test.py
 
 # yield
 yield/

@@ -538,6 +538,7 @@ def align_kekule_pairs(r: str, p: str):
     p: str,
         SMILES string representing the product
     """
+    # Preprocessing in case some atoms is not numbered
     reac_mol = Chem.MolFromSmiles(r)
     max_amap = max([atom.GetAtomMapNum() for atom in reac_mol.GetAtoms()])
     for atom in reac_mol.GetAtoms():
@@ -1156,7 +1157,7 @@ def run_get_p_b_l_forward(rxn_smi):
         - [] :
           An empty list if an rdkit.Chem.rdchem.KekulizeException is encountered.
     """
-    
+
     r, p = rxn_smi.split(">>")
 
     if Chem.MolFromSmiles(p).GetNumAtoms() >= 150 or Chem.MolFromSmiles(r).GetNumAtoms() >= 150:
@@ -1494,9 +1495,7 @@ def run_get_p_b_l_check(rxn):
         return []
 
     try:
-        pre_smiles = run_get_p_b_l_backward(
-            p, core_edits, chai_edits, stereo_edits, charge_edits, core_edits_add, lg_map_lis
-        )  # 加个5
+        pre_smiles = run_get_p_b_l_backward(p, core_edits, chai_edits, stereo_edits, charge_edits, core_edits_add, lg_map_lis)
     except:
         return "error type 5"
 
@@ -2013,6 +2012,11 @@ def replacenth(string, sub, wanted, n):
 
 
 def cano_smiles_map(smiles):
+    """
+    To ensure the map number indentical after kekulizing.
+    Neccessary as transforming to mol and back with kekulizing
+    DOES CHANGE the map number !
+    """
     atom_map_lis = []
     mol = Chem.MolFromSmiles(smiles, sanitize=False)
     for atom in mol.GetAtoms():
@@ -2275,7 +2279,7 @@ def get_e_smiles_with_check(rxn):
     str: ReactSeq string. When fails, string " >>> " indicating failure.
     """
     try:
-        p_b = run_get_p_b_l_check(rxn)  # * Different from get_e_smiles
+        p_b = run_get_p_b_l_check(rxn)  # * Different from get_e_smiles. p: product, b: bond_change, l: leaving group
         b_smiles = get_b_smiles_check(p_b)
         lg_lis = get_lg_forward(p_b[1], p_b[6])
 
@@ -2296,8 +2300,8 @@ def get_e_smiles_with_check(rxn):
         return iso_to_symbo(txt, dic_num_to_str)
     except:
         # When it fails, it is usually caused by kekulizing issues in
-        # run_get_p_b_l_forward call in run_get_p_b_l_check, which 
-        # will return an empty list,causing unpacking problems of 
+        # run_get_p_b_l_forward call in run_get_p_b_l_check, which
+        # will return an empty list,causing unpacking problems of
         # get_b_smiles_check.
         return " >>> "
 
